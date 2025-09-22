@@ -1,2 +1,21 @@
 # meeuuw
-mantle modelling early earth utrecht university work-in-progress
+Mantle modelling Early Earth Utrecht University Work-in-progress
+
+Code description:
+- FEM
+- Q2Q1 finite element pair for velocity
+- Q2 finite element for temperature
+- 2d 
+- linear viscous
+- particle-in-cell (passive)
+- export to vtu file
+- direct solver for both linear systems
+- Crank-Nicolson time scheme for T equation
+
+to do:
+- poisson disc distribution for particles
+- more accurate heat flux calculations
+- improve particle advection
+- SUPG and/or Lenardic & Kaula filter
+- 
+

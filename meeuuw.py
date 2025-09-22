@@ -1,11 +1,11 @@
 import numpy as np
 import sys as sys
+import numba
 import random
 from scipy import sparse
 import scipy.sparse as sps
 from scipy.sparse import lil_matrix
 import time as clock
-import numba
 
 ###############################################################################
 # density & viscosity functions
@@ -79,17 +79,14 @@ def basis_functions_P(r,s):
 
 ###############################################################################
 
+####@numba.njit
 def interpolate_vel_on_pt(xm,ym):
     ielx=int(xm/Lx*nelx)
     iely=int(ym/Ly*nely)
-    #if ielx<0:
-    #   exit('ielx<0')
-    #if iely<0:
-    #   exit('iely<0')
-    #if ielx>=nelx:
-    #   exit('ielx>nelx')
-    #if iely>=nely:
-    #   exit('iely>nely')
+    #if ielx<0: exit('ielx<0')
+    #if iely<0: exit('iely<0')
+    #if ielx>=nelx: exit('ielx>nelx')
+    #if iely>=nely: exit('iely>nely')
     iel=nelx*(iely)+ielx
     xmin=x_V[icon_V[0,iel]] 
     ymin=y_V[icon_V[0,iel]] 
@@ -103,19 +100,19 @@ def interpolate_vel_on_pt(xm,ym):
 ###############################################################################
 # constants
 
-year=365.25*3600*24
+cm=0.01
 eps=1e-9
 TKelvin=273.15
-cm=0.01
+year=365.25*3600*24
 
 ###############################################################################
 
 print("-----------------------------")
-print("----------fieldstone---------")
+print("----------- MEEUW -----------")
 print("-----------------------------")
 
 ndim=2   # number of dimensions
-ndof_V=2  # number of velocity degrees of freedom per node
+ndof_V=2 # number of velocity degrees of freedom per node
 
 Lx=500e3
 Ly=500e3
@@ -129,7 +126,7 @@ else:
 
 tol_ss=1e-7   # tolerance for steady state 
 
-CFL=0.25
+CFL=0.5
 
 nparticle_per_dim=6
 random_particles=True
@@ -179,8 +176,9 @@ hcapa=1250    # heat capacity
 rho0=3000     # reference density
 T0=273.15     # reference temperature
 gy=-10        # vertical component of gravity vector
-Tbottom=1000+TKelvin 
+
 Ttop=0+TKelvin
+Tbottom=1000+TKelvin 
 
 eta0=5e21
 
@@ -200,8 +198,8 @@ nqel=nqperdim**ndim
 # open output files & write headers
 ###############################################################################
 
-Nu_vrms_file=open('Nu_vrms.ascii',"w")
-Nu_vrms_file.write("#istep,Nusselt,vrms,qy bottom, qy top\n")
+vrms_file=open('vrms.ascii',"w")
+vrms_file.write("#time,vrms\n")
 pstats_file=open('pressure_stats.ascii',"w")
 pstats_file.write("#istep,min p, max p\n")
 vstats_file=open('velocity_stats.ascii',"w")
@@ -221,18 +219,6 @@ print ('Nfem     =',Nfem)
 print ('Di       =',Di_nb)
 print ('nqperdim =',nqperdim)
 print("-----------------------------")
-
-###############################################################################
-# checking that all velocity basis functions are 1 on their node 
-# and  zero elsewhere
-#for i in range(0,mV):
-#   print ('node',i,':',NNV(rVnodes[i],sVnodes[i]))
-
-###############################################################################
-# checking that all pressure basis functions are 1 on their node 
-# and  zero elsewhere
-#for i in range(0,mP):
-#   print ('node',i,':',NNP(rPnodes[i],sPnodes[i]))
 
 ###############################################################################
 # build velocity nodes coordinates 
@@ -284,10 +270,10 @@ print("build icon_V: %.3f s" % (clock.time()-start))
 ###############################################################################
 # build pressure grid 
 ###############################################################################
-start = clock.time()
+start=clock.time()
 
-x_P=np.zeros(nn_P,dtype=np.float64)     # x coordinates
-y_P=np.zeros(nn_P,dtype=np.float64)     # y coordinates
+x_P=np.zeros(nn_P,dtype=np.float64) # x coordinates
+y_P=np.zeros(nn_P,dtype=np.float64) # y coordinates
 
 counter=0    
 for j in range(0,nely+1):
@@ -298,7 +284,7 @@ for j in range(0,nely+1):
     #end for
  #end for
 
-#np.savetxt('gridP.ascii',np.array([xP,yP]).T,header='# x,y')
+if debug: np.savetxt('gridP.ascii',np.array([xP,yP]).T,header='# x,y')
 
 print("build P grid: %.3f s" % (clock.time() - start))
 
@@ -335,24 +321,24 @@ bc_val_V=np.zeros(Nfem_V,dtype=np.float64)  # boundary condition, value
 
 for i in range(0,nn_V):
     if x_V[i]/Lx<eps:
-       bc_fix_V[i*ndof_V] = True ; bc_val_V[i*ndof_V]   = 0.
+       bc_fix_V[i*ndof_V] = True ; bc_val_V[i*ndof_V] = 0.
     if x_V[i]/Lx>(1-eps):
-       bc_fix_V[i*ndof_V] = True ; bc_val_V[i*ndof_V]   = 0.
+       bc_fix_V[i*ndof_V] = True ; bc_val_V[i*ndof_V] = 0.
     if y_V[i]/Ly<eps:
        bc_fix_V[i*ndof_V+1] = True ; bc_val_V[i*ndof_V+1] = 0.
        if bot_bc_noslip:
-          bc_fix_V[i*ndof_V] = True ; bc_val_V[i*ndof_V]   = 0.
+          bc_fix_V[i*ndof_V] = True ; bc_val_V[i*ndof_V] = 0.
     if y_V[i]/Ly>(1-eps):
        bc_fix_V[i*ndof_V+1] = True ; bc_val_V[i*ndof_V+1] = 0.
        if top_bc_noslip:
-          bc_fix_V[i*ndof_V] = True ; bc_val_V[i*ndof_V]   = 0.
+          bc_fix_V[i*ndof_V] = True ; bc_val_V[i*ndof_V] = 0.
 
-print("velocity b.c.: %.3f s" % (clock.time() - start))
+print("velocity b.c.: %.3f s" % (clock.time()-start))
 
 ###############################################################################
 # define temperature boundary conditions
 ###############################################################################
-start = clock.time()
+start=clock.time()
 
 bc_fix_T=np.zeros(Nfem_T,dtype=bool)  
 bc_val_T=np.zeros(Nfem_T,dtype=np.float64) 
@@ -364,25 +350,29 @@ for i in range(0,nn_V):
        bc_fix_T[i]=True ; bc_val_T[i]=Ttop
 #end for
 
-print("temperature b.c.: %.3f s" % (clock.time() - start))
+print("temperature b.c.: %.3f s" % (clock.time()-start))
 
 ###############################################################################
 # initial temperature
 ###############################################################################
+start=clock.time()
 
 T=np.zeros(nn_V,dtype=np.float64)
 
 for i in range(0,nn_V):
-    T[i]= (Tbottom-Ttop)*(Ly-y_V[i])/Ly+Ttop  -0.001*np.cos(np.pi*x_V[i]/Lx)*np.sin(np.pi*y_V[i]/Ly)
+    T[i]= (Tbottom-Ttop)*(Ly-y_V[i])/Ly+Ttop\
+        -0.1*np.cos(np.pi*x_V[i]/Lx)*np.sin(np.pi*y_V[i]/Ly)
 
 T_mem=T.copy()
 
 if debug: np.savetxt('temperature_init.ascii',np.array([x,y,T]).T,header='# x,y,T')
 
+print("initial temperature: %.3f s" % (clock.time()-start))
+
 ###############################################################################
 # compute area of elements
 ###############################################################################
-start = clock.time()
+start=clock.time()
 
 area=np.zeros(nel,dtype=np.float64) 
 jcb=np.zeros((ndim,ndim),dtype=np.float64)
@@ -413,14 +403,18 @@ print("     -> total area %.6f " %(area.sum()))
 print("compute elements areas: %.3f s" % (clock.time() - start))
 
 ###############################################################################
-# precompute basis functions values at q points
+# compute jacobian matrix (inverse and determinant)
 ###############################################################################
-start = clock.time()
 
 jcbi=np.zeros((ndim,ndim),dtype=np.float64)
 jcbi[0,0]=2/hx
 jcbi[1,1]=2/hy
 jcob=hx*hy/4
+
+###############################################################################
+# precompute basis functions values at q points
+###############################################################################
+start=clock.time()
 
 N_V=np.zeros((nqel,m_V),dtype=np.float64) 
 N_P=np.zeros((nqel,m_P),dtype=np.float64) 
@@ -449,12 +443,12 @@ for iq in range(0,nqperdim):
         dNdy_V[counterq,0:m_V]=jcbi[1,1]*dNds_V[counterq,0:m_V]
         counterq+=1
 
-print("compute N & grad(N) at q pts: %.3f s" % (clock.time() - start))
+print("compute N & grad(N) at q pts: %.3f s" % (clock.time()-start))
 
 ###############################################################################
 # precompute basis functions values at V nodes
 ###############################################################################
-start = clock.time()
+start=clock.time()
 
 N_V_n=np.zeros((m_V,m_V),dtype=np.float64) 
 N_P_n=np.zeros((m_V,m_P),dtype=np.float64) 
@@ -473,12 +467,12 @@ for i in range(0,m_V):
     dNdx_V_n[i,0:m_V]=jcbi[0,0]*dNdr_V_n[i,0:m_V]
     dNdy_V_n[i,0:m_V]=jcbi[1,1]*dNds_V_n[i,0:m_V]
 
-print("compute N & grad(N) at V nodes: %.3f s" % (clock.time() - start))
+print("compute N & grad(N) at V nodes: %.3f s" % (clock.time()-start))
 
 ###############################################################################
 # compute array for assembly
 ###############################################################################
-start = clock.time()
+start=clock.time()
 
 local_to_globalV=np.zeros((ndof_V_el,nel),dtype=np.int32)
 
@@ -489,12 +483,12 @@ for iel in range(0,nel):
             m1 =ndof_V*icon_V[k1,iel]+i1
             local_to_globalV[ikk,iel]=m1
                  
-print("compute local_to_globalV: %.3f s" % (clock.time() - start))
+print("compute local_to_globalV: %.3f s" % (clock.time()-start))
 
 ###############################################################################
 # fill I,J arrays
 ###############################################################################
-start = clock.time()
+start=clock.time()
 
 bignb=nel*( (m_V*ndof_V)**2 + 2*(m_V*ndof_V*m_P) )
 
@@ -525,7 +519,7 @@ print("fill II_V,JJ_V arrays: %.3f s" % (clock.time()-start))
 ###############################################################################
 # fill I,J arrays
 ###############################################################################
-start = clock.time()
+start=clock.time()
 
 bignb=nel*m_T**2 
 
@@ -557,13 +551,12 @@ swarm_x=np.zeros(nparticle,dtype=np.float64)
 swarm_y=np.zeros(nparticle,dtype=np.float64)
 swarm_u=np.zeros(nparticle,dtype=np.float64)
 swarm_v=np.zeros(nparticle,dtype=np.float64)
-swarm_active=np.zeros(nparticle,dtype=bool)
+swarm_active=np.zeros(nparticle,dtype=bool) ; swarm_active[:]=True
 
 if random_particles:
    counter=0
    for iel in range(0,nel):
        for im in range(0,nparticle_per_element):
-           # generate random numbers r,s between 0 and 1
            r=random.uniform(-1.,+1)
            s=random.uniform(-1.,+1)
            N=basis_functions_V(r,s)
@@ -587,13 +580,11 @@ else:
        #end for
    #end for
 
-swarm_active[:]=True
-
 print("     -> nparticle %d " % nparticle)
 print("     -> swarm_x (m,M) %.4f %.4f " %(np.min(swarm_x),np.max(swarm_x)))
 print("     -> swarm_y (m,M) %.4f %.4f " %(np.min(swarm_y),np.max(swarm_y)))
 
-print("particles setup: %.3f s" % (clock.time() - start))
+print("particles setup: %.3f s" % (clock.time()-start))
 
 ###############################################################################
 # particle paint
@@ -627,7 +618,7 @@ C=np.array([[2,0,0],[0,2,0],[0,0,1]],dtype=np.float64)
 
 geological_time=0.
 
-topstart = clock.time()
+topstart=clock.time()
 
 for istep in range(0,nstep):
     print("-----------------------------")
@@ -639,12 +630,11 @@ for istep in range(0,nstep):
     # [ K G ][u]=[f]
     # [GT 0 ][p] [h]
     ###########################################################################
-    start = clock.time()
+    start=clock.time()
 
-    f_rhs=np.zeros(Nfem_V,dtype=np.float64) # right hand side f 
-    h_rhs=np.zeros(Nfem_P,dtype=np.float64) # right hand side h 
     B=np.zeros((3,ndof_V*m_V),dtype=np.float64) # gradient matrix B 
     N_mat=np.zeros((3,m_P),dtype=np.float64) # matrix  
+    rhs=np.zeros(Nfem,dtype=np.float64)     # right hand side of Ax=b
 
     counter=0
     for iel in range(0,nel):
@@ -688,17 +678,17 @@ for istep in range(0,nstep):
         for ikk in range(0,ndof_V_el):
             m1=local_to_globalV[ikk,iel]
             if bc_fix_V[m1]:
-                   K_ref=K_el[ikk,ikk] 
-                   for jkk in range(0,ndof_V_el):
-                       f_el[jkk]-=K_el[jkk,ikk]*bc_val_V[m1]
-                       K_el[ikk,jkk]=0
-                       K_el[jkk,ikk]=0
-                   K_el[ikk,ikk]=K_ref
-                   f_el[ikk]=K_ref*bc_val_V[m1]
-                   h_el[:]-=G_el[ikk,:]*bc_val_V[m1]
-                   G_el[ikk,:]=0
+               K_ref=K_el[ikk,ikk] 
+               for jkk in range(0,ndof_V_el):
+                   f_el[jkk]-=K_el[jkk,ikk]*bc_val_V[m1]
+               K_el[ikk,:]=0
+               K_el[:,ikk]=0
+               K_el[ikk,ikk]=K_ref
+               f_el[ikk]=K_ref*bc_val_V[m1]
+               h_el[:]-=G_el[ikk,:]*bc_val_V[m1]
+               G_el[ikk,:]=0
 
-        # assemble matrix K_mat and right hand side rhs
+        # assemble matrix and right hand side
         for ikk in range(ndof_V_el):
             m1=local_to_globalV[ikk,iel]
             for jkk in range(ndof_V_el):
@@ -709,10 +699,10 @@ for istep in range(0,nstep):
                 counter+=1
                 VV_V[counter]=G_el[ikk,jkk]
                 counter+=1
-            f_rhs[m1]+=f_el[ikk]
+            rhs[m1]+=f_el[ikk]
         for k2 in range(0,m_P):
             m2=icon_P[k2,iel]
-            h_rhs[m2]+=h_el[k2]
+            rhs[Nfem_V+m2]+=h_el[k2]
 
     print("build FE matrix: %.3fs" % (clock.time()-start))
 
@@ -721,19 +711,15 @@ for istep in range(0,nstep):
     ###########################################################################
     # solve system
     ###########################################################################
-    start = clock.time()
-
-    rhs = np.zeros(Nfem,dtype=np.float64)         # right hand side of Ax=b
-    rhs[0:Nfem_V]=f_rhs
-    rhs[Nfem_V:Nfem]=h_rhs
+    start=clock.time()
 
     sparse_matrix=sparse.coo_matrix((VV_V,(II_V,JJ_V)),shape=(Nfem,Nfem)).tocsr()
 
     sol=sps.linalg.spsolve(sparse_matrix,rhs)
 
-    print("solve time: %.3f s" % (clock.time() - start))
-
     t02+=clock.time()-start
+
+    print("solve time: %.3f s" % (clock.time()-start))
 
     ###########################################################################
     # put solution into separate x,y velocity arrays
@@ -743,9 +729,9 @@ for istep in range(0,nstep):
     u,v=np.reshape(sol[0:Nfem_V],(nn_V,2)).T
     p=sol[Nfem_V:Nfem]*(eta_ref/Lx)
 
-    print("     -> u (m,M) %e %e " %(np.min(u)/cm*year,np.max(u)/cm*year))
-    print("     -> v (m,M) %e %e " %(np.min(v)/cm*year,np.max(v)/cm*year))
-    print("     -> p (m,M) %e %e " %(np.min(p)/cm*year,np.max(p)/cm*year))
+    print("     -> u (m,M) %e %e cm/yr" %(np.min(u)/cm*year,np.max(u)/cm*year))
+    print("     -> v (m,M) %e %e cm/yr" %(np.min(v)/cm*year,np.max(v)/cm*year))
+    print("     -> p (m,M) %e %e Pa   " %(np.min(p)/cm*year,np.max(p)/cm*year))
 
     vstats_file.write("%10e %10e %10e %10e %10e\n" % (istep,np.min(u),np.max(u),\
                                                             np.min(u),np.max(u)))
@@ -754,9 +740,9 @@ for istep in range(0,nstep):
        np.savetxt('velocity.ascii',np.array([x_V,y_V,u,v]).T,header='# x,y,u,v')
        np.savetxt('pressure.ascii',np.array([x_P,y_P,p]).T,header='# x,y,p')
 
-    print("split vel into u,v: %.3f s" % (clock.time() - start))
-
     t14+=clock.time()-start
+
+    print("split vel into u,v: %.3f s" % (clock.time()-start))
 
     ###########################################################################
     # compute timestep
@@ -774,31 +760,34 @@ for istep in range(0,nstep):
     print('     -> dt = %.6f yr' %(dt/year))
     print('     -> geological time = %e yr' %(geological_time/year))
 
-    dt_file.write("%10e %10e %10e %10e\n" % (geological_time,dt1,dt2,dt))
+    dt_file.write("%e %e %e %e\n" % (geological_time/year,dt1/year,dt2/year,dt/year)) 
     dt_file.flush()
 
     print("compute time step: %.3f s" % (clock.time()-start))
 
     ###########################################################################
-    # normalise pressure
+    # normalise pressure: simple approach to have <p> @ surface = 0
     ###########################################################################
-    start = clock.time()
+    start=clock.time()
 
-    pressure_avrg=0
-    for iel in range(0,nel):
-        for iq in range(0,nqel):
-            pressure_avrg+=np.dot(N_P[iq,:],p[icon_P[:,iel]])*jcob*weightq[iq]
-        #end for iq
-    #end for iel
-    p-=pressure_avrg/Lx/Ly
+    #pressure_avrg=0
+    #for iel in range(0,nel):
+    #    for iq in range(0,nqel):
+    #        pressure_avrg+=np.dot(N_P[iq,:],p[icon_P[:,iel]])*jcob*weightq[iq]
+    #p-=pressure_avrg/Lx/Ly
+
+    pressure_avrg=np.sum(p[nn_P-1-(nelx+1):nn_P-1])/(nelx+1)
+    p-=pressure_avrg
 
     print("     -> p (m,M) %.4f %.4f " %(np.min(p),np.max(p)))
 
     pstats_file.write("%10e %10e %10e\n" % (istep,np.min(p),np.max(p)))
-        
-    print("normalise pressure: %.3f s" % (clock.time() - start))
 
+    np.savetxt('p.ascii',np.array([x_P,y_P,p]).T,header='# x,y,p')
+        
     t12+=clock.time()-start
+
+    print("normalise pressure: %.3f s" % (clock.time()-start))
 
     ###########################################################################
     # project Q1 pressure onto Q2 (vel,T) mesh
@@ -821,14 +810,14 @@ for istep in range(0,nstep):
 
     if debug: np.savetxt('q.ascii',np.array([x_V,y_V,q]).T,header='# x,y,q')
 
-    print("compute nodal press: %.3f s" % (clock.time() - start))
-
     t03+=clock.time()-start
+
+    print("compute nodal press: %.3f s" % (clock.time()-start))
 
     ###########################################################################
     # build temperature matrix
     ###########################################################################
-    start = clock.time()
+    start=clock.time()
 
     Tvect=np.zeros(m_T,dtype=np.float64)   
     rhs=np.zeros(Nfem_T,dtype=np.float64)    # FE rhs 
@@ -937,10 +926,10 @@ for istep in range(0,nstep):
     ###########################################################################
     # compute vrms 
     ###########################################################################
-    start = clock.time()
+    start=clock.time()
 
     vrms=0.
-    for iel in range (0,nel):
+    for iel in range(0,nel):
         for iq in range(0,nqel):
             JxW=jcob*weightq[iq]
             uq=np.dot(N_V[iq,:],u[icon_V[:,iel]])
@@ -951,16 +940,18 @@ for istep in range(0,nstep):
 
     vrms=np.sqrt(vrms/(Lx*Ly)) 
 
-    print("     istep= %.6d ; vrms   = %.6f" %(istep,vrms))
+    vrms_file.write("%e %e \n" % (geological_time/year,vrms/cm*year)) ; vrms_file.flush()
 
-    print("compute vrms: %.3f s" % (clock.time() - start))
+    print("     istep= %.6d ; vrms   = %.6f" %(istep,vrms/cm*year))
+
+    print("compute vrms: %.3f s" % (clock.time()-start))
 
     t06+=clock.time()-start
 
     ###########################################################################
     # compute nodal heat flux 
     ###########################################################################
-    start = clock.time()
+    start=clock.time()
     
     if istep%5==0: 
        count=np.zeros(nn_V,dtype=np.int32)  
@@ -982,16 +973,16 @@ for istep in range(0,nstep):
        print("     -> qx_n (m,M) %.6e %.6e " %(np.min(qx_n),np.max(qx_n)))
        print("     -> qy_n (m,M) %.6e %.6e " %(np.min(qy_n),np.max(qy_n)))
 
-    print("compute nodal heat flux: %.3f s" % (clock.time() - start))
+    print("compute nodal heat flux: %.3f s" % (clock.time()-start))
 
     t07+=clock.time()-start
 
     ###########################################################################
     # compute Nusselt number at top
     ###########################################################################
-    start = clock.time()
+    start=clock.time()
 
-    if istep%5==0: 
+    if istep%2500==0: 
 
        qy_top=0
        qy_bot=0
@@ -1019,21 +1010,18 @@ for istep in range(0,nstep):
 
        Nusselt=np.abs(Nusselt)/Lx
 
-       Nu_vrms_file.write("%10e %.10f %.10f %.10f %.10f \n" % (istep,Nusselt,vrms,qy_bot,qy_top))
-       Nu_vrms_file.flush()
-
        print("     istep= %d ; Nusselt= %e " %(istep,Nusselt))
 
-    print("compute Nu: %.3f s" % (clock.time() - start))
+    print("compute Nu: %.3f s" % (clock.time()-start))
 
     t08+=clock.time()-start
 
     ###########################################################################
     # compute temperature profile
     ###########################################################################
-    start = clock.time()
+    start=clock.time()
 
-    if istep%5==0: 
+    if istep%25==0: 
 
        T_profile=np.zeros(nny,dtype=np.float64)  
        y_profile=np.zeros(nny,dtype=np.float64)  
@@ -1047,7 +1035,7 @@ for istep in range(0,nstep):
            #end for
        #end for
 
-       np.savetxt('T_profile.ascii',np.array([y_profile,T_profile]).T,header='#y,T')
+       np.savetxt('T_profile_'+str(istep)+'.ascii',np.array([y_profile,T_profile]).T,header='#y,T')
 
        print("compute T profile: %.3f s" % (clock.time() - start))
 
@@ -1104,6 +1092,7 @@ for istep in range(0,nstep):
               swarm_u[im],swarm_v[im],rm,sm,iel =interpolate_vel_on_pt(swarm_x[im],swarm_y[im])
               swarm_x[im]+=swarm_u[im]*dt
               swarm_y[im]+=swarm_v[im]*dt
+              #print(swarm_u[im]*dt)
               if swarm_x[im]<0 or swarm_x[im]>Lx or swarm_y[im]<0 or swarm_y[im]>Ly:
                  swarm_active[im]=False
                  swarm_x[im]=-0.0123
@@ -1238,7 +1227,7 @@ for istep in range(0,nstep):
     ########################################################################
     start=clock.time()
 
-    if istep%5==0: 
+    if istep%5==0 or istep==nstep-1: 
 
        filename = 'particles_{:04d}.vtu'.format(istep)
        vtufile=open(filename,"w")
@@ -1257,10 +1246,10 @@ for istep in range(0,nstep):
        #####
        vtufile.write("<PointData Scalars='scalars'>\n")
        #--
-       #vtufile.write("<DataArray type='Float32' NumberOfComponents='3' Name='velocity' Format='ascii'> \n")
-       #for im in range(0,nparticle):
-       #    vtufile.write("%10e %10e %10e \n" %(swarm_u[im],swarm_v[im],0.))
-       #vtufile.write("</DataArray>\n")
+       vtufile.write("<DataArray type='Float32' NumberOfComponents='3' Name='velocity' Format='ascii'> \n")
+       for im in range(0,nparticle):
+           vtufile.write("%10e %10e %10e \n" %(swarm_u[im]/cm*year,swarm_v[im]/cm*year,0.))
+       vtufile.write("</DataArray>\n")
        #--
        vtufile.write("<DataArray type='Float32' NumberOfComponents='1' Name='paint' Format='ascii'> \n")
        for im in range(0,nparticle):
@@ -1303,7 +1292,7 @@ for istep in range(0,nstep):
 
     ###########################################################################
 
-    if istep%25==0:
+    if istep%25==0 or istep==nstep-1:
 
        duration=clock.time()-topstart
 
@@ -1314,11 +1303,10 @@ for istep in range(0,nstep):
        print("solve system T: %.3f s          | %.2f percent" % (t05,(t05/duration*100))) 
        print("compute vrms: %.3f s            | %.2f percent" % (t06,(t06/duration*100))) 
        print("compute nodal p: %.3f s         | %.2f percent" % (t03,(t03/duration*100))) 
+       print("compute nodal sr: %.3f s        | %.2f percent" % (t11,(t11/duration*100))) 
        print("compute nodal heat flux: %.3f s | %.2f percent" % (t07,(t07/duration*100))) 
-       print("compute Nusself nb: %.3f s      | %.2f percent" % (t08,(t08/duration*100))) 
        print("compute T profile: %.3f s       | %.2f percent" % (t09,(t09/duration*100))) 
        print("export to vtu: %.3f s           | %.2f percent" % (t10,(t10/duration*100))) 
-       print("compute nodal sr: %.3f s        | %.2f percent" % (t11,(t11/duration*100))) 
        print("normalise pressure: %.3f s      | %.2f percent" % (t12,(t12/duration*100))) 
        print("advect particles: %.3f s        | %.2f percent" % (t13,(t13/duration*100))) 
        print("split solution: %.3f s          | %.2f percent" % (t14,(t14/duration*100))) 
@@ -1326,15 +1314,14 @@ for istep in range(0,nstep):
 
 #end for istep
 
-print("     script ; Nusselt= %e " %(Nusselt))
-
 ###############################################################################
 # close files
 ###############################################################################
        
 vstats_file.close()
 pstats_file.close()
-Nu_vrms_file.close()
+vrms_file.close()
+dt_file.close()
 
 ###############################################################################
 
