@@ -1,5 +1,6 @@
 import numpy as np
 import sys as sys
+import random
 from scipy import sparse
 import scipy.sparse as sps
 from scipy.sparse import lil_matrix
@@ -77,6 +78,29 @@ def basis_functions_P(r,s):
     return np.array([N_0,N_1,N_2,N_3],dtype=np.float64)
 
 ###############################################################################
+
+def interpolate_vel_on_pt(xm,ym):
+    ielx=int(xm/Lx*nelx)
+    iely=int(ym/Ly*nely)
+    #if ielx<0:
+    #   exit('ielx<0')
+    #if iely<0:
+    #   exit('iely<0')
+    #if ielx>=nelx:
+    #   exit('ielx>nelx')
+    #if iely>=nely:
+    #   exit('iely>nely')
+    iel=nelx*(iely)+ielx
+    xmin=x_V[icon_V[0,iel]] 
+    ymin=y_V[icon_V[0,iel]] 
+    rm=((xm-xmin)/hx-0.5)*2
+    sm=((ym-ymin)/hy-0.5)*2
+    N=basis_functions_V(rm,sm)
+    um=np.dot(N,u[icon_V[:,iel]])
+    vm=np.dot(N,v[icon_V[:,iel]])
+    return um,vm,rm,sm,iel
+
+###############################################################################
 # constants
 
 year=365.25*3600*24
@@ -100,12 +124,15 @@ if int(len(sys.argv) == 4):
    nelx  = int(sys.argv[1])
    nstep = int(sys.argv[3])
 else:
-   nelx = 64
+   nelx = 32
    nstep= 250
 
 tol_ss=1e-7   # tolerance for steady state 
 
 CFL=0.25
+
+nparticle_per_dim=6
+random_particles=True
 
 top_bc_noslip=False  
 bot_bc_noslip=False
@@ -142,11 +169,11 @@ debug=False
 ###############################################################################
 
 t01=0 ; t02=0 ; t03=0 ; t04=0 ; t05=0 ; t06=0 ; t14=0
-t07=0 ; t08=0 ; t09=0 ; t10=0 ; t11=0 ; t12=0 
+t07=0 ; t08=0 ; t09=0 ; t10=0 ; t11=0 ; t12=0 ; t13=0
 
 ###############################################################################
 
-alphaT=2.5e-3 # thermal expansion coefficient
+alphaT=3e-5   # thermal expansion coefficient
 hcond=3.      # thermal conductivity
 hcapa=1250    # heat capacity
 rho0=3000     # reference density
@@ -155,7 +182,7 @@ gy=-10        # vertical component of gravity vector
 Tbottom=1000+TKelvin 
 Ttop=0+TKelvin
 
-eta0=5e22
+eta0=5e21
 
 Di_nb=alphaT*abs(gy)*Ly/hcapa
 
@@ -175,8 +202,6 @@ nqel=nqperdim**ndim
 
 Nu_vrms_file=open('Nu_vrms.ascii',"w")
 Nu_vrms_file.write("#istep,Nusselt,vrms,qy bottom, qy top\n")
-Tavrg_file=open('Tavrg.ascii',"w")
-Tavrg_file.write("#istep,Tavrg\n")
 pstats_file=open('pressure_stats.ascii',"w")
 pstats_file.write("#istep,min p, max p\n")
 vstats_file=open('velocity_stats.ascii',"w")
@@ -346,11 +371,9 @@ print("temperature b.c.: %.3f s" % (clock.time() - start))
 ###############################################################################
 
 T=np.zeros(nn_V,dtype=np.float64)
-#T_mem=np.zeros(nn_V,dtype=np.float64)
 
 for i in range(0,nn_V):
-    T[i]= (Tbottom-Ttop)*(Ly-y_V[i])/Ly+Ttop  -1*np.cos(np.pi*x_V[i]/Lx)*np.sin(np.pi*y_V[i]/Ly)
-#end for
+    T[i]= (Tbottom-Ttop)*(Ly-y_V[i])/Ly+Ttop  -0.001*np.cos(np.pi*x_V[i]/Lx)*np.sin(np.pi*y_V[i]/Ly)
 
 T_mem=T.copy()
 
@@ -521,6 +544,77 @@ for iel in range(0,nel):
             counter+=1
 
 print("fill II_T,JJ_T arrays: %.3f s" % (clock.time()-start))
+
+###############################################################################
+# particles setup
+###############################################################################
+start=clock.time()
+
+nparticle_per_element=nparticle_per_dim**2
+nparticle=nel*nparticle_per_element
+
+swarm_x=np.zeros(nparticle,dtype=np.float64)
+swarm_y=np.zeros(nparticle,dtype=np.float64)
+swarm_u=np.zeros(nparticle,dtype=np.float64)
+swarm_v=np.zeros(nparticle,dtype=np.float64)
+swarm_active=np.zeros(nparticle,dtype=bool)
+
+if random_particles:
+   counter=0
+   for iel in range(0,nel):
+       for im in range(0,nparticle_per_element):
+           # generate random numbers r,s between 0 and 1
+           r=random.uniform(-1.,+1)
+           s=random.uniform(-1.,+1)
+           N=basis_functions_V(r,s)
+           swarm_x[counter]=np.dot(N[:],x_V[icon_V[:,iel]])
+           swarm_y[counter]=np.dot(N[:],y_V[icon_V[:,iel]])
+           counter+=1
+       #end for
+   #end for
+else:
+   counter=0
+   for iel in range(0,nel):
+       for j in range(0,nparticle_per_dim):
+           for i in range(0,nparticle_per_dim):
+               r=-1.+i*2./nparticle_per_dim + 1./nparticle_per_dim
+               s=-1.+j*2./nparticle_per_dim + 1./nparticle_per_dim
+               N=basis_functions_V(r,s)
+               swarm_x[counter]=np.dot(N[:],x_V[icon_V[:,iel]])
+               swarm_y[counter]=np.dot(N[:],y_V[icon_V[:,iel]])
+               counter+=1
+           #end for
+       #end for
+   #end for
+
+swarm_active[:]=True
+
+print("     -> nparticle %d " % nparticle)
+print("     -> swarm_x (m,M) %.4f %.4f " %(np.min(swarm_x),np.max(swarm_x)))
+print("     -> swarm_y (m,M) %.4f %.4f " %(np.min(swarm_y),np.max(swarm_y)))
+
+print("particles setup: %.3f s" % (clock.time() - start))
+
+###############################################################################
+# particle paint
+###############################################################################
+start=clock.time()
+
+swarm_mat=np.zeros(nparticle,dtype=np.int32)
+
+for i in [0,2,4,6,8,10,12,14]:
+    dx=Lx/16
+    for im in range (0,nparticle):
+        if swarm_x[im]>i*dx and swarm_x[im]<(i+1)*dx:
+           swarm_mat[im]+=1
+
+for i in [0,2,4,6,8,10,12,14]:
+    dy=Ly/16
+    for im in range (0,nparticle):
+        if swarm_y[im]>i*dy and swarm_y[im]<(i+1)*dy:
+           swarm_mat[im]+=1
+
+print("particles paint: %.3f s" % (clock.time()-start))
 
 ###############################################################################
 ###############################################################################
@@ -846,23 +940,16 @@ for istep in range(0,nstep):
     start = clock.time()
 
     vrms=0.
-    Tavrg=0.
     for iel in range (0,nel):
         for iq in range(0,nqel):
             JxW=jcob*weightq[iq]
             uq=np.dot(N_V[iq,:],u[icon_V[:,iel]])
             vq=np.dot(N_V[iq,:],v[icon_V[:,iel]])
-            Tq=np.dot(N_V[iq,:],T[icon_V[:,iel]])
             vrms+=(uq**2+vq**2)*JxW
-            Tavrg+=Tq*JxW
         #end for iq
     #end for iel
 
     vrms=np.sqrt(vrms/(Lx*Ly)) 
-    Tavrg/=(Lx*Ly)             
-
-    Tavrg_file.write("%10e %10e\n" % (istep,Tavrg))
-    Tavrg_file.flush()
 
     print("     istep= %.6d ; vrms   = %.6f" %(istep,vrms))
 
@@ -946,26 +1033,25 @@ for istep in range(0,nstep):
     ###########################################################################
     start = clock.time()
 
-    T_profile=np.zeros(nny,dtype=np.float64)  
-    y_profile=np.zeros(nny,dtype=np.float64)  
+    if istep%5==0: 
 
-    counter=0    
-    for j in range(0,nny):
-        for i in range(0,nnx):
-            T_profile[j]+=T[counter]/nnx
-            y_profile[j]=y_V[counter]
-            counter+=1
-        #end for
-    #end for
+       T_profile=np.zeros(nny,dtype=np.float64)  
+       y_profile=np.zeros(nny,dtype=np.float64)  
 
-    np.savetxt('T_profile.ascii',np.array([y_profile,T_profile]).T,header='#y,T')
+       counter=0    
+       for j in range(0,nny):
+           for i in range(0,nnx):
+               T_profile[j]+=T[counter]/nnx
+               y_profile[j]=y_V[counter]
+               counter+=1
+           #end for
+       #end for
 
-    print("compute T profile: %.3f s" % (clock.time() - start))
+       np.savetxt('T_profile.ascii',np.array([y_profile,T_profile]).T,header='#y,T')
+
+       print("compute T profile: %.3f s" % (clock.time() - start))
 
     t09+=clock.time()-start
-
-
-
 
     ###########################################################################
     # compute nodal strainrate
@@ -1003,6 +1089,35 @@ for istep in range(0,nstep):
     print("compute nodal sr: %.3f s" % (clock.time()-start))
 
     t11+=clock.time()-start
+
+    ###########################################################################
+    # advect particles
+    ###########################################################################
+    start=clock.time()
+
+    RKorder=1 # cheap!
+
+    if RKorder==1:
+
+       for im in range(0,nparticle):
+           if swarm_active[im]:
+              swarm_u[im],swarm_v[im],rm,sm,iel =interpolate_vel_on_pt(swarm_x[im],swarm_y[im])
+              swarm_x[im]+=swarm_u[im]*dt
+              swarm_y[im]+=swarm_v[im]*dt
+              if swarm_x[im]<0 or swarm_x[im]>Lx or swarm_y[im]<0 or swarm_y[im]>Ly:
+                 swarm_active[im]=False
+                 swarm_x[im]=-0.0123
+                 swarm_y[im]=-0.0123
+           # end if active
+       # end for im
+
+    else:
+
+       exit('no higher order RK yet')
+
+    t13+=clock.time()-start
+
+    print("advect particles: %.3f s" % (clock.time()-start))
 
     ###########################################################################
     # plot of solution
@@ -1053,6 +1168,11 @@ for istep in range(0,nstep):
        vtufile.write("<DataArray type='Float32' Name='exy' Format='ascii'> \n")
        for i in range(0,nn_V):
            vtufile.write("%e \n" %exy_n[i])
+       vtufile.write("</DataArray>\n")
+       #--
+       vtufile.write("<DataArray type='Float32' Name='density' Format='ascii'> \n")
+       for i in range(0,nn_V):
+           vtufile.write("%e \n" %(rho(rho0,alphaT,T[i],T0)))
        vtufile.write("</DataArray>\n")
        #--
        vtufile.write("<DataArray type='Float32' Name='Shear heating (2*eta*e)' Format='ascii'> \n")
@@ -1109,15 +1229,100 @@ for istep in range(0,nstep):
        vtufile.write("</VTKFile>\n")
        vtufile.close()
 
-       print("export to vtu file: %.3f s" % (clock.time()-start))
+       print("export solution to vtu file: %.3f s" % (clock.time()-start))
 
        t10+=clock.time()-start
+
+    ########################################################################
+    # export particles to vtu file
+    ########################################################################
+    start=clock.time()
+
+    if istep%5==0: 
+
+       filename = 'particles_{:04d}.vtu'.format(istep)
+       vtufile=open(filename,"w")
+       vtufile.write("<VTKFile type='UnstructuredGrid' version='0.1' byte_order='BigEndian'> \n")
+       vtufile.write("<UnstructuredGrid> \n")
+       vtufile.write("<Piece NumberOfPoints=' %5d ' NumberOfCells=' %5d '> \n" %(nparticle,nparticle))
+       #####
+       vtufile.write("<Points> \n")
+       #--
+       vtufile.write("<DataArray type='Float32' NumberOfComponents='3' Format='ascii'> \n")
+       for im in range(0,nparticle):
+           vtufile.write("%10e %10e %10e \n" %(swarm_x[im],swarm_y[im],0.))
+       vtufile.write("</DataArray>\n")
+       #--
+       vtufile.write("</Points> \n")
+       #####
+       vtufile.write("<PointData Scalars='scalars'>\n")
+       #--
+       #vtufile.write("<DataArray type='Float32' NumberOfComponents='3' Name='velocity' Format='ascii'> \n")
+       #for im in range(0,nparticle):
+       #    vtufile.write("%10e %10e %10e \n" %(swarm_u[im],swarm_v[im],0.))
+       #vtufile.write("</DataArray>\n")
+       #--
+       vtufile.write("<DataArray type='Float32' NumberOfComponents='1' Name='paint' Format='ascii'> \n")
+       for im in range(0,nparticle):
+           vtufile.write("%10e \n" % swarm_mat[im])
+       vtufile.write("</DataArray>\n")
+       #--
+       vtufile.write("</PointData>\n")
+       #####
+       vtufile.write("<Cells>\n")
+       #--
+       vtufile.write("<DataArray type='Int32' Name='connectivity' Format='ascii'> \n")
+       for im in range (0,nparticle):
+           vtufile.write("%d\n" % im )
+       vtufile.write("</DataArray>\n")
+       #--
+       vtufile.write("<DataArray type='Int32' Name='offsets' Format='ascii'> \n")
+       for im in range (0,nparticle):
+           vtufile.write("%d \n" % (im+1) )
+       vtufile.write("</DataArray>\n")
+       #--
+       vtufile.write("<DataArray type='Int32' Name='types' Format='ascii'>\n")
+       for im in range (0,nparticle):
+           vtufile.write("%d \n" % 1)
+       vtufile.write("</DataArray>\n")
+       #--
+       vtufile.write("</Cells>\n")
+       #####
+       vtufile.write("</Piece>\n")
+       vtufile.write("</UnstructuredGrid>\n")
+       vtufile.write("</VTKFile>\n")
+       vtufile.close()
+
+       print("export particles to vtu file: %.3f s" % (clock.time() - start))
 
     ###########################################################################
 
     u_mem=u.copy()
     v_mem=v.copy()
     T_mem=T.copy()
+
+    ###########################################################################
+
+    if istep%25==0:
+
+       duration=clock.time()-topstart
+
+       print("-----------------------------------------------")
+       print("build FE matrix V: %.3f s       | %.2f percent" % (t01,(t01/duration*100))) 
+       print("solve system V: %.3f s          | %.2f percent" % (t02,(t02/duration*100))) 
+       print("build matrix T: %.3f s          | %.2f percent" % (t04,(t04/duration*100))) 
+       print("solve system T: %.3f s          | %.2f percent" % (t05,(t05/duration*100))) 
+       print("compute vrms: %.3f s            | %.2f percent" % (t06,(t06/duration*100))) 
+       print("compute nodal p: %.3f s         | %.2f percent" % (t03,(t03/duration*100))) 
+       print("compute nodal heat flux: %.3f s | %.2f percent" % (t07,(t07/duration*100))) 
+       print("compute Nusself nb: %.3f s      | %.2f percent" % (t08,(t08/duration*100))) 
+       print("compute T profile: %.3f s       | %.2f percent" % (t09,(t09/duration*100))) 
+       print("export to vtu: %.3f s           | %.2f percent" % (t10,(t10/duration*100))) 
+       print("compute nodal sr: %.3f s        | %.2f percent" % (t11,(t11/duration*100))) 
+       print("normalise pressure: %.3f s      | %.2f percent" % (t12,(t12/duration*100))) 
+       print("advect particles: %.3f s        | %.2f percent" % (t13,(t13/duration*100))) 
+       print("split solution: %.3f s          | %.2f percent" % (t14,(t14/duration*100))) 
+       print("-----------------------------------------------")
 
 #end for istep
 
@@ -1129,31 +1334,13 @@ print("     script ; Nusselt= %e " %(Nusselt))
        
 vstats_file.close()
 pstats_file.close()
-Tavrg_file.close()
 Nu_vrms_file.close()
 
 ###############################################################################
 
-duration=clock.time()-topstart
-
+print("-----------------------------")
 print("total compute time: %.3f s" % (duration))
-
-print("-----------------------------------------------")
-print("build FE matrix V: %.3f s       | %.2f percent" % (t01,(t01/duration*100))) 
-print("solve system V: %.3f s          | %.2f percent" % (t02,(t02/duration*100))) 
-print("build matrix T: %.3f s          | %.2f percent" % (t04,(t04/duration*100))) 
-print("solve system T: %.3f s          | %.2f percent" % (t05,(t05/duration*100))) 
-print("compute vrms: %.3f s            | %.2f percent" % (t06,(t06/duration*100))) 
-print("compute nodal p: %.3f s         | %.2f percent" % (t03,(t03/duration*100))) 
-print("compute nodal heat flux: %.3f s | %.2f percent" % (t07,(t07/duration*100))) 
-print("compute Nusself nb: %.3f s      | %.2f percent" % (t08,(t08/duration*100))) 
-print("compute T profile: %.3f s       | %.2f percent" % (t09,(t09/duration*100))) 
-print("export to vtu: %.3f s           | %.2f percent" % (t10,(t10/duration*100))) 
-print("compute nodal sr: %.3f s        | %.2f percent" % (t11,(t11/duration*100))) 
-print("normalise pressure: %.3f s      | %.2f percent" % (t12,(t12/duration*100))) 
-print("split solution: %.3f s          | %.2f percent" % (t14,(t14/duration*100))) 
-print("-----------------------------------------------")
-
 print(t01+t02+t03+t04+t05+t06+t07+t08+t09+t10+t11+t12+t14,duration)
+print("-----------------------------")
     
 ###############################################################################
