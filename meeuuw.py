@@ -121,14 +121,14 @@ if int(len(sys.argv) == 4):
    nelx  = int(sys.argv[1])
    nstep = int(sys.argv[3])
 else:
-   nelx = 32
-   nstep= 250
+   nelx = 48
+   nstep= 1000
 
 tol_ss=1e-7   # tolerance for steady state 
 
 CFL=0.5
 
-nparticle_per_dim=6
+nparticle_per_dim=5
 random_particles=True
 
 top_bc_noslip=False  
@@ -779,9 +779,9 @@ for istep in range(0,nstep):
     pressure_avrg=np.sum(p[nn_P-1-(nelx+1):nn_P-1])/(nelx+1)
     p-=pressure_avrg
 
-    print("     -> p (m,M) %.4f %.4f " %(np.min(p),np.max(p)))
+    print("     -> p (m,M) %e %e " %(np.min(p),np.max(p)))
 
-    pstats_file.write("%10e %10e %10e\n" % (istep,np.min(p),np.max(p)))
+    pstats_file.write("%d %e %e\n" % (istep,np.min(p),np.max(p)))
 
     np.savetxt('p.ascii',np.array([x_P,y_P,p]).T,header='# x,y,p')
         
