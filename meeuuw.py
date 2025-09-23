@@ -121,13 +121,14 @@ if int(len(sys.argv) == 4):
    nelx  = int(sys.argv[1])
    nstep = int(sys.argv[3])
 else:
-   nelx = 48
+   nelx =32 
    nstep= 1000
 
 tol_ss=1e-7   # tolerance for steady state 
 
 CFL=0.5
 
+RKorder=4
 nparticle_per_dim=5
 random_particles=True
 
@@ -162,6 +163,7 @@ hy=Ly/nely # element size in y direction
 EBA=False
 
 debug=False
+    
 
 ###############################################################################
 
@@ -1083,13 +1085,12 @@ for istep in range(0,nstep):
     ###########################################################################
     start=clock.time()
 
-    RKorder=1 # cheap!
 
     if RKorder==1:
 
        for im in range(0,nparticle):
            if swarm_active[im]:
-              swarm_u[im],swarm_v[im],rm,sm,iel =interpolate_vel_on_pt(swarm_x[im],swarm_y[im])
+              swarm_u[im],swarm_v[im],rm,sm,iel=interpolate_vel_on_pt(swarm_x[im],swarm_y[im])
               swarm_x[im]+=swarm_u[im]*dt
               swarm_y[im]+=swarm_v[im]*dt
               #print(swarm_u[im]*dt)
@@ -1097,6 +1098,62 @@ for istep in range(0,nstep):
                  swarm_active[im]=False
                  swarm_x[im]=-0.0123
                  swarm_y[im]=-0.0123
+           # end if active
+       # end for im
+
+    elif RKorder==2:
+
+       for im in range(0,nparticle):
+           if swarm_active[im]:
+              xA=swarm_x[im]
+              yA=swarm_y[im]
+              uA,vA,rm,sm,iel=interpolate_vel_on_pt(xA,yA)
+              xB=xA+uA*dt/2.
+              yB=yA+vA*dt/2.
+              if xB<0 or xB>Lx or yB<0 or yB>Ly:
+                 swarm_active[im]=False
+              else:
+                 uB,vB,rm,sm,iel=interpolate_vel_on_pt(xB,yB)
+                 swarm_x[im]=xA+uB*dt
+                 swarm_y[im]=yA+vB*dt
+                 swarm_u[im]=uB
+                 swarm_v[im]=vB
+              # end if active
+           # end if active
+       # end for im
+
+    elif RKorder==4:
+
+       for im in range(0,nparticle):
+           if swarm_active[im]:
+              xA=swarm_x[im]
+              yA=swarm_y[im]
+              uA,vA,rm,sm,iel=interpolate_vel_on_pt(xA,yA)
+              xB=xA+uA*dt/2.
+              yB=yA+vA*dt/2.
+              if xB<0 or xB>Lx or yB<0 or yB>Ly:
+                 swarm_active[im]=False
+              else:
+                 uB,vB,rm,sm,iel=interpolate_vel_on_pt(xB,yB)
+                 xC=xA+uB*dt/2.
+                 yC=yA+vB*dt/2.
+                 if xC<0 or xC>Lx or yC<0 or yC>Ly:
+                    swarm_active[im]=False
+                 else:
+                    uC,vC,rm,sm,iel=interpolate_vel_on_pt(xC,yC)
+                    xD=xA+uC*dt
+                    yD=yA+vC*dt
+                    if xD<0 or xD>Lx or yD<0 or yD>Ly:
+                       swarm_active[im]=False
+                    else:
+                       uD,vD,rm,sm,iel=interpolate_vel_on_pt(xD,yD)
+                       swarm_u[im]=(uA+2*uB+2*uC+uD)/6
+                       swarm_v[im]=(vA+2*vB+2*vC+vD)/6
+                       swarm_x[im]=xA+swarm_u[im]*dt
+                       swarm_y[im]=yA+swarm_v[im]*dt
+                    # end if active
+                 # end if active
+              # end if active
            # end if active
        # end for im
 
