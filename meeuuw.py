@@ -2,10 +2,9 @@ import numpy as np
 import sys as sys
 import numba
 import random
+import time as clock
 from scipy import sparse
 import scipy.sparse as sps
-from scipy.sparse import lil_matrix
-import time as clock
 
 ###############################################################################
 # density & viscosity functions
@@ -78,16 +77,18 @@ def basis_functions_P(r,s):
     return np.array([N_0,N_1,N_2,N_3],dtype=np.float64)
 
 ###############################################################################
+# jit on this function really makes a difference - keep it
+###############################################################################
 
-####@numba.njit
-def interpolate_vel_on_pt(xm,ym):
+@numba.njit
+def interpolate_vel_on_pt(xm,ym,hx,hy):
     ielx=int(xm/Lx*nelx)
     iely=int(ym/Ly*nely)
     #if ielx<0: exit('ielx<0')
     #if iely<0: exit('iely<0')
     #if ielx>=nelx: exit('ielx>nelx')
     #if iely>=nely: exit('iely>nely')
-    iel=nelx*(iely)+ielx
+    iel=nelx*iely+ielx
     xmin=x_V[icon_V[0,iel]] 
     ymin=y_V[icon_V[0,iel]] 
     rm=((xm-xmin)/hx-0.5)*2
@@ -114,15 +115,17 @@ print("-----------------------------")
 ndim=2   # number of dimensions
 ndof_V=2 # number of velocity degrees of freedom per node
 
-Lx=500e3
+Lx=1500e3
 Ly=500e3
 
 if int(len(sys.argv) == 4):
    nelx  = int(sys.argv[1])
+   nely  = int(sys.argv[2])
    nstep = int(sys.argv[3])
 else:
-   nelx =32 
-   nstep= 1000
+   nelx=96 
+   nely=32
+   nstep=100
 
 tol_ss=1e-7   # tolerance for steady state 
 
@@ -135,11 +138,9 @@ random_particles=True
 top_bc_noslip=False  
 bot_bc_noslip=False
 
-nely=nelx
-
-nel=nelx*nely # total number of elements
-nn_V=(2*nelx+1)*(2*nely+1)  # number of V nodes
-nn_P=(nelx+1)*(nely+1) # number of P nodes
+nel=nelx*nely              # total number of elements
+nn_V=(2*nelx+1)*(2*nely+1) # number of V nodes
+nn_P=(nelx+1)*(nely+1)     # number of P nodes
 
 m_V=9 # number of velocity nodes per element
 m_P=4 # number of pressure nodes per element
@@ -147,8 +148,6 @@ m_T=9 # number of temperature nodes per element
 
 r_V=[-1,0,+1,-1,0,+1,-1,0,+1]
 s_V=[-1,-1,-1,0,0,0,+1,+1,+1]
-r_P=[-1,+1,-1,+1]
-s_P=[-1,-1,+1,+1]
 
 ndof_V_el=m_V*ndof_V
 
@@ -163,7 +162,6 @@ hy=Ly/nely # element size in y direction
 EBA=False
 
 debug=False
-    
 
 ###############################################################################
 
@@ -187,6 +185,7 @@ eta0=5e21
 Di_nb=alphaT*abs(gy)*Ly/hcapa
 
 eta_ref=eta0
+
 ###############################################################################
 # quadrature rule points and weights
 ###############################################################################
@@ -362,8 +361,8 @@ start=clock.time()
 T=np.zeros(nn_V,dtype=np.float64)
 
 for i in range(0,nn_V):
-    T[i]= (Tbottom-Ttop)*(Ly-y_V[i])/Ly+Ttop\
-        -0.1*np.cos(np.pi*x_V[i]/Lx)*np.sin(np.pi*y_V[i]/Ly)
+    T[i]=(Tbottom-Ttop)*(Ly-y_V[i])/Ly+Ttop\
+        -1*np.cos(np.pi*x_V[i]/Lx)*np.sin(np.pi*y_V[i]/Ly)
 
 T_mem=T.copy()
 
@@ -623,9 +622,24 @@ geological_time=0.
 topstart=clock.time()
 
 for istep in range(0,nstep):
-    print("-----------------------------")
-    print("istep= ", istep)
-    print("-----------------------------")
+    print("-------------------------------------")
+    print("istep= ", istep,'geological time=',geological_time)
+    print("-------------------------------------")
+
+    ###########################################################################
+    # evaluate density and viscosity on particles
+    ###########################################################################
+
+
+
+
+    ###########################################################################
+    # project particle properties on mesh
+    ###########################################################################
+
+
+
+
 
     ###########################################################################
     # build FE matrix
@@ -731,12 +745,12 @@ for istep in range(0,nstep):
     u,v=np.reshape(sol[0:Nfem_V],(nn_V,2)).T
     p=sol[Nfem_V:Nfem]*(eta_ref/Lx)
 
-    print("     -> u (m,M) %e %e cm/yr" %(np.min(u)/cm*year,np.max(u)/cm*year))
-    print("     -> v (m,M) %e %e cm/yr" %(np.min(v)/cm*year,np.max(v)/cm*year))
-    print("     -> p (m,M) %e %e Pa   " %(np.min(p)/cm*year,np.max(p)/cm*year))
+    print("     -> u (m,M) %e %e (cm/yr)" %(np.min(u)/cm*year,np.max(u)/cm*year))
+    print("     -> v (m,M) %e %e (cm/yr)" %(np.min(v)/cm*year,np.max(v)/cm*year))
+    print("     -> p (m,M) %e %e (Pa)   " %(np.min(p),np.max(p)))
 
-    vstats_file.write("%10e %10e %10e %10e %10e\n" % (istep,np.min(u),np.max(u),\
-                                                            np.min(u),np.max(u)))
+    vstats_file.write("%10e %10e %10e %10e %10e\n" % (istep,np.min(u)/cm*year,np.max(u)/cm*year,\
+                                                            np.min(u)/cm*year,np.max(u)/cm*year))
 
     if debug:
        np.savetxt('velocity.ascii',np.array([x_V,y_V,u,v]).T,header='# x,y,u,v')
@@ -808,7 +822,7 @@ for istep in range(0,nstep):
     
     q/=count
 
-    print("     -> q     (m,M) %.6e %.6e " %(np.min(q),np.max(q)))
+    print("     -> q (m,M) %.6e %.6e " %(np.min(q),np.max(q)))
 
     if debug: np.savetxt('q.ascii',np.array([x_V,y_V,q]).T,header='# x,y,q')
 
@@ -917,7 +931,7 @@ for istep in range(0,nstep):
 
     sparse_matrix=sparse.coo_matrix((VV_T,(II_T,JJ_T)),shape=(Nfem_T,Nfem_T)).tocsr()
 
-    T = sps.linalg.spsolve(sparse_matrix,rhs)
+    T=sps.linalg.spsolve(sparse_matrix,rhs)
 
     print("     T (m,M) %.4f %.4f " %(np.min(T),np.max(T)))
 
@@ -1014,7 +1028,7 @@ for istep in range(0,nstep):
 
        print("     istep= %d ; Nusselt= %e " %(istep,Nusselt))
 
-    print("compute Nu: %.3f s" % (clock.time()-start))
+       print("compute Nu: %.3f s" % (clock.time()-start))
 
     t08+=clock.time()-start
 
@@ -1050,6 +1064,7 @@ for istep in range(0,nstep):
 
     if istep%5==0:   
 
+       e_n=np.zeros(nn_V,dtype=np.float64)  
        exx_n=np.zeros(nn_V,dtype=np.float64)  
        eyy_n=np.zeros(nn_V,dtype=np.float64)  
        exy_n=np.zeros(nn_V,dtype=np.float64)  
@@ -1070,6 +1085,8 @@ for istep in range(0,nstep):
        eyy_n/=count
        exy_n/=count
 
+       e_n=np.sqrt(0.5*(exx_n**2+eyy_n**2)+exy_n**2)
+
        print("     -> exx_n (m,M) %.6e %.6e " %(np.min(exx_n),np.max(exx_n)))
        print("     -> eyy_n (m,M) %.6e %.6e " %(np.min(eyy_n),np.max(eyy_n)))
        print("     -> exy_n (m,M) %.6e %.6e " %(np.min(exy_n),np.max(exy_n)))
@@ -1085,19 +1102,15 @@ for istep in range(0,nstep):
     ###########################################################################
     start=clock.time()
 
-
     if RKorder==1:
 
        for im in range(0,nparticle):
            if swarm_active[im]:
-              swarm_u[im],swarm_v[im],rm,sm,iel=interpolate_vel_on_pt(swarm_x[im],swarm_y[im])
+              swarm_u[im],swarm_v[im],rm,sm,iel=interpolate_vel_on_pt(swarm_x[im],swarm_y[im],hx,hy)
               swarm_x[im]+=swarm_u[im]*dt
               swarm_y[im]+=swarm_v[im]*dt
-              #print(swarm_u[im]*dt)
               if swarm_x[im]<0 or swarm_x[im]>Lx or swarm_y[im]<0 or swarm_y[im]>Ly:
                  swarm_active[im]=False
-                 swarm_x[im]=-0.0123
-                 swarm_y[im]=-0.0123
            # end if active
        # end for im
 
@@ -1107,13 +1120,13 @@ for istep in range(0,nstep):
            if swarm_active[im]:
               xA=swarm_x[im]
               yA=swarm_y[im]
-              uA,vA,rm,sm,iel=interpolate_vel_on_pt(xA,yA)
+              uA,vA,rm,sm,iel=interpolate_vel_on_pt(xA,yA,hx,hy)
               xB=xA+uA*dt/2.
               yB=yA+vA*dt/2.
               if xB<0 or xB>Lx or yB<0 or yB>Ly:
                  swarm_active[im]=False
               else:
-                 uB,vB,rm,sm,iel=interpolate_vel_on_pt(xB,yB)
+                 uB,vB,rm,sm,iel=interpolate_vel_on_pt(xB,yB,hx,hy)
                  swarm_x[im]=xA+uB*dt
                  swarm_y[im]=yA+vB*dt
                  swarm_u[im]=uB
@@ -1128,25 +1141,25 @@ for istep in range(0,nstep):
            if swarm_active[im]:
               xA=swarm_x[im]
               yA=swarm_y[im]
-              uA,vA,rm,sm,iel=interpolate_vel_on_pt(xA,yA)
+              uA,vA,rm,sm,iel=interpolate_vel_on_pt(xA,yA,hx,hy)
               xB=xA+uA*dt/2.
               yB=yA+vA*dt/2.
               if xB<0 or xB>Lx or yB<0 or yB>Ly:
                  swarm_active[im]=False
               else:
-                 uB,vB,rm,sm,iel=interpolate_vel_on_pt(xB,yB)
+                 uB,vB,rm,sm,iel=interpolate_vel_on_pt(xB,yB,hx,hy)
                  xC=xA+uB*dt/2.
                  yC=yA+vB*dt/2.
                  if xC<0 or xC>Lx or yC<0 or yC>Ly:
                     swarm_active[im]=False
                  else:
-                    uC,vC,rm,sm,iel=interpolate_vel_on_pt(xC,yC)
+                    uC,vC,rm,sm,iel=interpolate_vel_on_pt(xC,yC,hx,hy)
                     xD=xA+uC*dt
                     yD=yA+vC*dt
                     if xD<0 or xD>Lx or yD<0 or yD>Ly:
                        swarm_active[im]=False
                     else:
-                       uD,vD,rm,sm,iel=interpolate_vel_on_pt(xD,yD)
+                       uD,vD,rm,sm,iel=interpolate_vel_on_pt(xD,yD,hx,hy)
                        swarm_u[im]=(uA+2*uB+2*uC+uD)/6
                        swarm_v[im]=(vA+2*vB+2*vC+vD)/6
                        swarm_x[im]=xA+swarm_u[im]*dt
@@ -1158,8 +1171,17 @@ for istep in range(0,nstep):
        # end for im
 
     else:
-
        exit('no higher order RK yet')
+
+    for im in range(0,nparticle):
+        if not swarm_active[im]:
+           swarm_x[im]=0
+           swarm_y[im]=0
+
+    print('     -> nb inactive particles:',nparticle-np.sum(swarm_active))
+
+    print("     -> swarm_x (m,M) %e %e " %(np.min(swarm_x),np.max(swarm_x)))
+    print("     -> swarm_y (m,M) %e %e " %(np.min(swarm_y),np.max(swarm_y)))
 
     t13+=clock.time()-start
 
@@ -1191,9 +1213,9 @@ for istep in range(0,nstep):
            vtufile.write("%e %e %e \n" %(u[i]/cm*year,v[i]/cm*year,0.))
        vtufile.write("</DataArray>\n")
        #--
-       vtufile.write("<DataArray type='Float32' Name='Pressure' Format='ascii'> \n")
+       vtufile.write("<DataArray type='Float32' Name='Pressure (MPa)' Format='ascii'> \n")
        for i in range(0,nn_V):
-           vtufile.write("%e \n" %q[i])
+           vtufile.write("%e \n" %q[i]/1e6)
        vtufile.write("</DataArray>\n")
        #--
        vtufile.write("<DataArray type='Float32' Name='Temperature (C)' Format='ascii'> \n")
@@ -1221,9 +1243,9 @@ for istep in range(0,nstep):
            vtufile.write("%e \n" %(rho(rho0,alphaT,T[i],T0)))
        vtufile.write("</DataArray>\n")
        #--
-       vtufile.write("<DataArray type='Float32' Name='Shear heating (2*eta*e)' Format='ascii'> \n")
+       vtufile.write("<DataArray type='Float32' Name='Shear heating (2*eta*e^2)' Format='ascii'> \n")
        for i in range(0,nn_V):
-           vtufile.write("%e \n" % (2*eta(T[i],x_V[i],y_V[i],eta0)*np.sqrt(exx_n[i]**2+eyy_n[i]**2+exy_n[i]**2)))
+           vtufile.write("%e \n" % (2*eta(T[i],x_V[i],y_V[i],eta0)*e_n[i]**2))
        vtufile.write("</DataArray>\n")
        #--
        #vtufile.write("<DataArray type='Float32' Name='adiab heating (linearised)' Format='ascii'> \n")
