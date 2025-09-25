@@ -14,7 +14,7 @@ Code description:
 - Crank-Nicolson time scheme for T equation
 
 to do:
-- poisson disc distribution for particles
 - more accurate heat flux calculations
 - SUPG and/or Lenardic & Kaula filter
-
+- do Tosi et al, 2015 benchmark
+ 

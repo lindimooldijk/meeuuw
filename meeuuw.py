@@ -2,6 +2,7 @@ import numpy as np
 import sys as sys
 import numba
 import random
+import jatten
 import time as clock
 from scipy import sparse
 import scipy.sparse as sps
@@ -141,15 +142,17 @@ match(experiment):
          Ra=1e6
          gy=-Ra/alphaT 
          TKelvin=0
+         pressure_normalisation='surface'
      case(1):
          Lx=0.9142
          Ly=1
-         gy=-1 
-         eta_ref=1
+         gy=-10 
+         eta_ref=100
          solve_T=False
          vel_scale=1
          p_scale=1
          time_scale=1
+         pressure_normalisation='volume'
      case(2):
          eta_ref=1e21
          p_scale=1e6
@@ -165,13 +168,13 @@ if int(len(sys.argv) == 4):
 else:
    nelx=64
    nely=64
-   nstep=500
+   nstep=1000
 
 CFLnb=0.5
 
 RKorder=2
-nparticle_per_dim=8
-random_particles=True
+nparticle_per_dim=5
+particle_distribution=0 # 0: random, 1: reg, 2: Poisson Disc
 
 ndim=2                     # number of dimensions
 ndof_V=2                   # number of velocity dofs per node
@@ -226,6 +229,7 @@ vstats_file=open('velocity_stats.ascii',"w")
 vstats_file.write("#istep,min(u),max(u),min(v),max(v)\n")
 dt_file=open('dt.ascii',"w")
 dt_file.write("#time dt1 dt2 dt\n")
+ptcl_stats_file=open('particle_stats.ascii',"w")
 
 ###############################################################################
 
@@ -238,6 +242,7 @@ print('Nfem_V   =',Nfem_V)
 print('Nfem_P   =',Nfem_P)
 print('Nfem     =',Nfem)
 print('nqperdim =',nqperdim)
+print('particle_distribution =',particle_distribution)
 print("-----------------------------")
 
 ###############################################################################
@@ -597,36 +602,53 @@ nparticle=nel*nparticle_per_element
 
 swarm_x=np.zeros(nparticle,dtype=np.float64)
 swarm_y=np.zeros(nparticle,dtype=np.float64)
+
+match(particle_distribution):
+
+     case(0): # random
+         counter=0
+         for iel in range(0,nel):
+             for im in range(0,nparticle_per_element):
+                 r=random.uniform(-1.,+1)
+                 s=random.uniform(-1.,+1)
+                 N=basis_functions_V(r,s)
+                 swarm_x[counter]=np.dot(N[:],x_V[icon_V[:,iel]])
+                 swarm_y[counter]=np.dot(N[:],y_V[icon_V[:,iel]])
+                 counter+=1
+             #end for
+         #end for
+
+     case(1): # regular
+
+         counter=0
+         for iel in range(0,nel):
+             for j in range(0,nparticle_per_dim):
+                 for i in range(0,nparticle_per_dim):
+                     r=-1.+i*2./nparticle_per_dim + 1./nparticle_per_dim
+                     s=-1.+j*2./nparticle_per_dim + 1./nparticle_per_dim
+                     N=basis_functions_V(r,s)
+                     swarm_x[counter]=np.dot(N[:],x_V[icon_V[:,iel]])
+                     swarm_y[counter]=np.dot(N[:],y_V[icon_V[:,iel]])
+                     counter+=1
+                 #end for
+             #end for
+         #end for
+
+     case(2): # Poisson Disc
+
+         kpoisson=30
+         nparticle_wish=nel*nparticle_per_element # target
+         print ('     -> nparticle_wish: %d ' % (nparticle_wish) )
+         avrgdist=np.sqrt(Lx*Ly/nparticle_wish)/1.25
+         nparticle,swarm_x,swarm_y=jatten.PoissonDisc(kpoisson,avrgdist,Lx,Ly)
+         print ('     -> nparticle: %d ' % (nparticle) )
+
+     case _ :
+         exit('unknown particle_distribution')
+
 swarm_u=np.zeros(nparticle,dtype=np.float64)
 swarm_v=np.zeros(nparticle,dtype=np.float64)
 swarm_active=np.zeros(nparticle,dtype=bool) ; swarm_active[:]=True
-
-if random_particles:
-   counter=0
-   for iel in range(0,nel):
-       for im in range(0,nparticle_per_element):
-           r=random.uniform(-1.,+1)
-           s=random.uniform(-1.,+1)
-           N=basis_functions_V(r,s)
-           swarm_x[counter]=np.dot(N[:],x_V[icon_V[:,iel]])
-           swarm_y[counter]=np.dot(N[:],y_V[icon_V[:,iel]])
-           counter+=1
-       #end for
-   #end for
-else:
-   counter=0
-   for iel in range(0,nel):
-       for j in range(0,nparticle_per_dim):
-           for i in range(0,nparticle_per_dim):
-               r=-1.+i*2./nparticle_per_dim + 1./nparticle_per_dim
-               s=-1.+j*2./nparticle_per_dim + 1./nparticle_per_dim
-               N=basis_functions_V(r,s)
-               swarm_x[counter]=np.dot(N[:],x_V[icon_V[:,iel]])
-               swarm_y[counter]=np.dot(N[:],y_V[icon_V[:,iel]])
-               counter+=1
-           #end for
-       #end for
-   #end for
 
 print("     -> nparticle %d " % nparticle)
 print("     -> swarm_x (m,M) %.4f %.4f " %(np.min(swarm_x),np.max(swarm_x)))
@@ -716,13 +738,13 @@ for istep in range(0,nstep):
                  swarm_rho[ip]=rho0*(1-alphaT*swarm_T[ip])
                  swarm_eta[ip]=1
          case(1):
-             for im in range(0,nparticle):
-                 if swarm_mat[im]==1:
-                    swarm_rho[im]=1000
-                    swarm_eta[im]=100
+             for ip in range(0,nparticle):
+                 if swarm_mat[ip]==1:
+                    swarm_rho[ip]=1000
+                    swarm_eta[ip]=100
                  else:
-                    swarm_rho[im]=1010
-                    swarm_eta[im]=100
+                    swarm_rho[ip]=1010
+                    swarm_eta[ip]=100
 
          #case(2):
          case _ :
@@ -751,8 +773,13 @@ for istep in range(0,nstep):
         eta_elemental[iel]+=swarm_eta[ip] # arithmetic 
         nparticle_elemental[iel]+=1
 
+    if np.min(nparticle_elemental)==0: exit('Abort: element without particle')
+
     rho_elemental/=nparticle_elemental
     eta_elemental/=nparticle_elemental
+
+    ptcl_stats_file.write("%d %d %d\n" % (istep,np.min(nparticle_elemental),np.max(nparticle_elemental)))
+    ptcl_stats_file.flush()
 
     print("project particle fields on mesh: %.3fs" % (clock.time()-start))
 
@@ -779,7 +806,7 @@ for istep in range(0,nstep):
 
         for iq in range(0,nqel):
 
-            JxW=jcob*weightq[iq]
+            JxWq=jcob*weightq[iq]
 
             xq=np.dot(N_V[iq,:],x_V[icon_V[:,iel]])
             yq=np.dot(N_V[iq,:],y_V[icon_V[:,iel]])
@@ -793,17 +820,15 @@ for istep in range(0,nstep):
                 B[2,2*i  ]=dNdy
                 B[2,2*i+1]=dNdx
 
-            #K_el+=B.T.dot(C.dot(B))*eta(Tq,xq,yq,eta0)*JxW
-            K_el+=B.T.dot(C.dot(B))*eta_elemental[iel]*JxW
+            K_el+=B.T.dot(C.dot(B))*eta_elemental[iel]*JxWq
 
             for i in range(0,m_V):
-                #f_el[ndof_V*i+1]+=N_V[iq,i]*JxW*rho(rho0,alphaT,Tq,T0)*gy
-                f_el[ndof_V*i+1]+=N_V[iq,i]*JxW*rho_elemental[iel]*gy
+                f_el[ndof_V*i+1]+=N_V[iq,i]*JxWq*rho_elemental[iel]*gy
 
             N_mat[0,0:m_P]=N_P[iq,0:m_P]
             N_mat[1,0:m_P]=N_P[iq,0:m_P]
 
-            G_el-=B.T.dot(N_mat)*JxW
+            G_el-=B.T.dot(N_mat)*JxWq
 
         # end for iq
 
@@ -908,14 +933,18 @@ for istep in range(0,nstep):
     ###########################################################################
     start=clock.time()
 
-    #pressure_avrg=0
-    #for iel in range(0,nel):
-    #    for iq in range(0,nqel):
-    #        pressure_avrg+=np.dot(N_P[iq,:],p[icon_P[:,iel]])*jcob*weightq[iq]
-    #p-=pressure_avrg/Lx/Ly
+    match(pressure_normalisation): 
 
-    pressure_avrg=np.sum(p[nn_P-1-(nelx+1):nn_P-1])/(nelx+1)
-    p-=pressure_avrg
+         case('surface'):
+             pressure_avrg=np.sum(p[nn_P-1-(nelx+1):nn_P-1])/(nelx+1)
+             p-=pressure_avrg
+
+         case('volume'):
+             pressure_avrg=0
+             for iel in range(0,nel):
+                 for iq in range(0,nqel):
+                     pressure_avrg+=np.dot(N_P[iq,:],p[icon_P[:,iel]])*jcob*weightq[iq]
+             p-=pressure_avrg/Lx/Ly
 
     print("     -> p (m,M) %e %e " %(np.min(p),np.max(p)))
 
@@ -978,7 +1007,7 @@ for istep in range(0,nstep):
 
            for iq in range(0,nqel):
 
-               JxW=jcob*weightq[iq]
+               JxWq=jcob*weightq[iq]
 
                N=N_V[iq,:]
 
@@ -989,13 +1018,13 @@ for istep in range(0,nstep):
                B[1,:]=dNdy_V[iq,:]
    
                # compute mass matrix
-               MM+=np.outer(N,N)*rho0*hcapa*weightq*jcob
+               MM+=np.outer(N,N)*rho0*hcapa*JxWq
    
                # compute diffusion matrix
-               Kd+=B.T.dot(B)*hcond*JxW
+               Kd+=B.T.dot(B)*hcond*JxWq
 
                # compute advection matrix
-               Ka+=np.outer(N,velq.dot(B))*rho0*hcapa*JxW
+               Ka+=np.outer(N,velq.dot(B))*rho0*hcapa*JxWq
 
                if EBA:
                   xq=np.dot(N_V[iq,:],x_V[icon_V[:,iel]])
@@ -1008,9 +1037,9 @@ for istep in range(0,nstep):
                   dpdxq=np.dot(dNdx_V[iq,:],q[icon_V[:,iel]])
                   dpdyq=np.dot(dNdy_V[iq,:],q[icon_V[:,iel]])
                   #viscous dissipation
-                  b_el[:]+=N[:]*JxW*2*eta(Tq,xq,yq,eta0)*(exxq**2+eyyq**2+2*exyq**2) 
+                  b_el[:]+=N[:]*JxWq*2*eta(Tq,xq,yq,eta0)*(exxq**2+eyyq**2+2*exyq**2) 
                   #adiabatic heating
-                  b_el[:]+=N[:]*JxW*alphaT*Tq*(velq[0,0]*dpdxq+velq[0,1]*dpdyq)  
+                  b_el[:]+=N[:]*JxWq*alphaT*Tq*(velq[0,0]*dpdxq+velq[0,1]*dpdyq)  
    
            #end for
 
@@ -1073,10 +1102,10 @@ for istep in range(0,nstep):
     vrms=0.
     for iel in range(0,nel):
         for iq in range(0,nqel):
-            JxW=jcob*weightq[iq]
+            JxWq=jcob*weightq[iq]
             uq=np.dot(N_V[iq,:],u[icon_V[:,iel]])
             vq=np.dot(N_V[iq,:],v[icon_V[:,iel]])
-            vrms+=(uq**2+vq**2)*JxW
+            vrms+=(uq**2+vq**2)*JxWq
         #end for iq
     #end for iel
 
