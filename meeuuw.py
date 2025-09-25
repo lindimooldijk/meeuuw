@@ -67,8 +67,6 @@ def basis_functions_P(r,s):
 # jit on this function really makes a difference - keep it
 ###############################################################################
 
-
-
 @numba.njit
 def interpolate_vel_on_pt(xm,ym,u,v):
     ielx=int(xm/Lx*nelx)
@@ -165,14 +163,14 @@ if int(len(sys.argv) == 4):
    nely  = int(sys.argv[2])
    nstep = int(sys.argv[3])
 else:
-   nelx=48
-   nely=48
+   nelx=64
+   nely=64
    nstep=500
 
 CFLnb=0.5
 
-RKorder=4
-nparticle_per_dim=6
+RKorder=2
+nparticle_per_dim=8
 random_particles=True
 
 ndim=2                     # number of dimensions
@@ -231,6 +229,8 @@ dt_file.write("#time dt1 dt2 dt\n")
 
 ###############################################################################
 
+print('Lx       =',Lx)
+print('Ly       =',Ly)
 print('nn_V     =',nn_V)
 print('nn_P     =',nn_P)
 print('nel      =',nel)
@@ -341,7 +341,7 @@ bc_val_V=np.zeros(Nfem_V,dtype=np.float64) # boundary condition, value
 
 match(experiment):
 
-     case(0): # Blankenbach et al convection
+     case(0): # Blankenbach et al convection, free slip all sides
          for i in range(0,nn_V):
              if x_V[i]/Lx<eps:
                 bc_fix_V[i*ndof_V  ]=True ; bc_val_V[i*ndof_V  ]=0.
@@ -352,7 +352,7 @@ match(experiment):
              if y_V[i]/Ly>(1-eps):
                 bc_fix_V[i*ndof_V+1]=True ; bc_val_V[i*ndof_V+1]=0.
 
-     case(1): # van Keken et al Rayleigh-Taylor instability
+     case(1): # van Keken et al Rayleigh-Taylor instability, no slip top, bottom 
          for i in range(0,nn_V):
              if x_V[i]/Lx<eps:
                 bc_fix_V[i*ndof_V  ]=True ; bc_val_V[i*ndof_V  ]=0.
@@ -897,7 +897,7 @@ for istep in range(0,nstep):
     geological_time+=dt
 
     print('     -> dt = %.6f' %(dt/time_scale))
-    print('     -> geological time = %e yr' %(geological_time/time_scale))
+    print('     -> geological time = %e ' %(geological_time/time_scale))
 
     dt_file.write("%e %e %e %e\n" % (geological_time,dt1,dt2,dt)) ; dt_file.flush()
 
@@ -1063,6 +1063,8 @@ for istep in range(0,nstep):
 
        t05+=clock.time()-start
 
+    #end if solve_T
+
     ###########################################################################
     # compute vrms 
     ###########################################################################
@@ -1189,11 +1191,11 @@ for istep in range(0,nstep):
 
     if istep%5==0:   
 
+       count=np.zeros(nn_V,dtype=np.int32)  
        e_n=np.zeros(nn_V,dtype=np.float64)  
        exx_n=np.zeros(nn_V,dtype=np.float64)  
        eyy_n=np.zeros(nn_V,dtype=np.float64)  
        exy_n=np.zeros(nn_V,dtype=np.float64)  
-       count=np.zeros(nn_V,dtype=np.int32)  
 
        for iel in range(0,nel):
            for i in range(0,m_V):
@@ -1296,7 +1298,7 @@ for istep in range(0,nstep):
        # end for im
 
     else:
-       exit('no higher order RK yet')
+       exit('RKorder not available')
 
     for im in range(0,nparticle):
         if not swarm_active[im]:
@@ -1575,7 +1577,7 @@ dt_file.close()
 
 print("-----------------------------")
 print("total compute time: %.3f s" % (duration))
-print(t01+t02+t03+t04+t05+t06+t07+t08+t09+t10+t11+t12+t14,duration)
+print(t01+t02+t03+t04+t05+t06+t07+t08+t09+t10+t11+t12+t14+t15+t16,duration)
 print("-----------------------------")
     
 ###############################################################################
