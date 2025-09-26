@@ -114,7 +114,7 @@ year=365.25*3600*24
 Myear=365.25*3600*24*1e6
 
 print("-----------------------------")
-print("----------- MEEUW -----------")
+print("----------- MEEUUW ----------")
 print("-----------------------------")
 
 ###############################################################################
@@ -122,7 +122,7 @@ print("-----------------------------")
 # experiment 1: van Keken et al, JGR, 1997
 # experiment 2: Schmeling et al, PEPI 2008
 
-experiment=1
+experiment=0
 
 match(experiment):
      case(0):
@@ -136,13 +136,15 @@ match(experiment):
          Ttop=0
          Tbottom=1
          alphaT=1e-2   # thermal expansion coefficient
-         hcond=1      # thermal conductivity
-         hcapa=1    # heat capacity
+         hcond=1       # thermal conductivity
+         hcapa=1       # heat capacity
          rho0=1
-         Ra=1e6
+         Ra=1e4
          gy=-Ra/alphaT 
          TKelvin=0
          pressure_normalisation='surface'
+         every_Nu=1
+         every_q=1
      case(1):
          Lx=0.9142
          Ly=1
@@ -153,11 +155,15 @@ match(experiment):
          p_scale=1
          time_scale=1
          pressure_normalisation='volume'
+         every_Nu=1000
+         every_q=1000
      case(2):
          eta_ref=1e21
          p_scale=1e6
          vel_scale=cm/year
          time_scale=year
+         every_Nu=1000
+         every_q=1000
      case _ :
          exit('unknown experiment')  
 
@@ -166,11 +172,13 @@ if int(len(sys.argv) == 4):
    nely  = int(sys.argv[2])
    nstep = int(sys.argv[3])
 else:
-   nelx=64
-   nely=64
-   nstep=1000
+   nelx=48
+   nely=48
+   nstep=2000
 
-CFLnb=0.5
+CFLnb=0.85
+         
+every_vtu=10
 
 RKorder=2
 nparticle_per_dim=5
@@ -230,18 +238,20 @@ vstats_file.write("#istep,min(u),max(u),min(v),max(v)\n")
 dt_file=open('dt.ascii',"w")
 dt_file.write("#time dt1 dt2 dt\n")
 ptcl_stats_file=open('particle_stats.ascii',"w")
+Nu_file=open('Nu.ascii',"w")
 
 ###############################################################################
 
-print('Lx       =',Lx)
-print('Ly       =',Ly)
-print('nn_V     =',nn_V)
-print('nn_P     =',nn_P)
-print('nel      =',nel)
-print('Nfem_V   =',Nfem_V)
-print('Nfem_P   =',Nfem_P)
-print('Nfem     =',Nfem)
-print('nqperdim =',nqperdim)
+print('experiment=',experiment)
+print('Lx        =',Lx)
+print('Ly        =',Ly)
+print('nn_V      =',nn_V)
+print('nn_P      =',nn_P)
+print('nel       =',nel)
+print('Nfem_V    =',Nfem_V)
+print('Nfem_P    =',Nfem_P)
+print('Nfem      =',Nfem)
+print('nqperdim  =',nqperdim)
 print('particle_distribution =',particle_distribution)
 print("-----------------------------")
 
@@ -250,8 +260,8 @@ print("-----------------------------")
 ###############################################################################
 start=clock.time()
 
-x_V=np.zeros(nn_V,dtype=np.float64)  # x coordinates
-y_V=np.zeros(nn_V,dtype=np.float64)  # y coordinates
+x_V=np.zeros(nn_V,dtype=np.float64) # x coordinates
+y_V=np.zeros(nn_V,dtype=np.float64) # y coordinates
 
 counter=0    
 for j in range(0,2*nely+1):
@@ -369,7 +379,6 @@ match(experiment):
              if y_V[i]/Ly>(1-eps):
                 bc_fix_V[i*ndof_V  ]=True ; bc_val_V[i*ndof_V  ]=0.
                 bc_fix_V[i*ndof_V+1]=True ; bc_val_V[i*ndof_V+1]=0.
-
      case _ :
          exit('unknown experiment')  
 
@@ -454,7 +463,8 @@ print("     -> total area %.6f " %(area.sum()))
 print("compute elements areas: %.3f s" % (clock.time() - start))
 
 ###############################################################################
-# compute jacobian matrix (inverse and determinant)
+# Compute jacobian matrix (inverse and determinant)
+# This is only valid for rectangular elements.
 ###############################################################################
 
 jcbi=np.zeros((ndim,ndim),dtype=np.float64)
@@ -778,7 +788,8 @@ for istep in range(0,nstep):
     rho_elemental/=nparticle_elemental
     eta_elemental/=nparticle_elemental
 
-    ptcl_stats_file.write("%d %d %d\n" % (istep,np.min(nparticle_elemental),np.max(nparticle_elemental)))
+    ptcl_stats_file.write("%d %d %d\n" % (istep,np.min(nparticle_elemental),\
+                                                np.max(nparticle_elemental)))
     ptcl_stats_file.flush()
 
     print("project particle fields on mesh: %.3fs" % (clock.time()-start))
@@ -970,7 +981,6 @@ for istep in range(0,nstep):
             count[nodes[k]]+=1
         #end for
     #end for
-    
     q/=count
 
     print("     -> q (m,M) %.6e %.6e " %(np.min(q),np.max(q)))
@@ -1108,7 +1118,6 @@ for istep in range(0,nstep):
             vrms+=(uq**2+vq**2)*JxWq
         #end for iq
     #end for iel
-
     vrms=np.sqrt(vrms/(Lx*Ly)) 
 
     vrms_file.write("%e %e \n" % (geological_time/time_scale,vrms/vel_scale)) ; vrms_file.flush()
@@ -1127,7 +1136,7 @@ for istep in range(0,nstep):
     qx_n=np.zeros(nn_V,dtype=np.float64)  
     qy_n=np.zeros(nn_V,dtype=np.float64)  
 
-    if istep%5==0 and solve_T: 
+    if istep%every_q==0 and solve_T: 
        count=np.zeros(nn_V,dtype=np.int32)  
 
        for iel in range(0,nel):
@@ -1154,7 +1163,7 @@ for istep in range(0,nstep):
     ###########################################################################
     start=clock.time()
 
-    if istep%2500==0 and solve_T: 
+    if istep%every_Nu==0 and solve_T: 
 
        qy_top=0
        qy_bot=0
@@ -1176,13 +1185,16 @@ for istep in range(0,nstep):
                   rq=qcoords[iq]
                   N=basis_functions_V(rq,sq)
                   q_y=np.dot(N,qy_n[icon_V[:,iel]])
-                  qy_bot+=q_y*(hx/2)*qweights[iq]
+                  qy_bot-=q_y*(hx/2)*qweights[iq]
            #end if
        #end for
 
        Nusselt=np.abs(Nusselt)/Lx
 
-       print("     istep= %d ; Nusselt= %e " %(istep,Nusselt))
+       print("     -> qy_bot,qy_top= %e %e " %(qy_bot,qy_top))
+       print("     -> Nusselt= %e " %(Nusselt))
+
+       Nu_file.write("%e %e \n" % (geological_time/time_scale,Nusselt)) ; Nu_file.flush()
 
        print("compute Nu: %.3f s" % (clock.time()-start))
 
@@ -1236,7 +1248,6 @@ for istep in range(0,nstep):
                count[inode]+=1
            #end for
        #end for
- 
        exx_n/=count
        eyy_n/=count
        exy_n/=count
@@ -1348,7 +1359,7 @@ for istep in range(0,nstep):
     ###########################################################################
     start=clock.time()
 
-    if istep%5==0: 
+    if istep%every_vtu==0: 
        filename = 'solution_{:04d}.vtu'.format(istep)
        vtufile=open(filename,"w")
        vtufile.write("<VTKFile type='UnstructuredGrid' version='0.1' byte_order='BigEndian'> \n")
@@ -1364,7 +1375,7 @@ for istep in range(0,nstep):
        #####
        vtufile.write("<PointData Scalars='scalars'>\n")
        #--
-       vtufile.write("<DataArray type='Float32' NumberOfComponents='3' Name='velocity' Format='ascii'> \n")
+       vtufile.write("<DataArray type='Float32' NumberOfComponents='3' Name='Velocity' Format='ascii'> \n")
        for i in range(0,nn_V):
            vtufile.write("%e %e %e \n" %(u[i]/vel_scale,v[i]/vel_scale,0.))
        vtufile.write("</DataArray>\n")
@@ -1601,6 +1612,7 @@ vstats_file.close()
 pstats_file.close()
 vrms_file.close()
 dt_file.close()
+Nu_file.close()
 
 ###############################################################################
 

@@ -17,4 +17,5 @@ to do:
 - more accurate heat flux calculations
 - SUPG and/or Lenardic & Kaula filter
 - do Tosi et al, 2015 benchmark
+- nonlinear iterations
  
