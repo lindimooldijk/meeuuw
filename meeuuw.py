@@ -10,7 +10,7 @@ import scipy.sparse as sps
 ###############################################################################
 # velocity basis functions
 ###############################################################################
-
+ 
 @numba.njit
 def basis_functions_V(r,s):
     N_0= 0.5*r*(r-1.) * 0.5*s*(s-1.)
@@ -145,6 +145,7 @@ match(experiment):
          pressure_normalisation='surface'
          every_Nu=1
          every_q=1
+         
      case(1):
          Lx=0.9142
          Ly=1
@@ -157,6 +158,7 @@ match(experiment):
          pressure_normalisation='volume'
          every_Nu=1000
          every_q=1000
+         
      case(2):
          eta_ref=1e21
          p_scale=1e6
@@ -164,6 +166,26 @@ match(experiment):
          time_scale=year
          every_Nu=1000
          every_q=1000
+         
+         Lx = 3000e3 # m
+         Ly = 750e3 # m
+         rho_lith = 3300 # kg/m3
+         rho_mantle = 3200 # kg/m3
+         rho_surfacelayer = 0 # kg/m3
+         
+         eta_lith = 10**23 # Pa s
+         eta_mantle = 10**21 # Pa s
+         eta_surfacelayer_weak = 10**19 # Pa s, case 1 in paper
+         eta_surfacelayer_strong = 10**21 # Pa s, case 2 in paper
+         
+         thickness_lith0 = 100e3 # km, initial
+         thickness_surfacelayer = 50e3 # km
+         slab_penetration0 = 200e3 # km, from the top of the mantle, initial slab depth
+         
+         gy = -9.81 
+         solve_T = False # eta and rho do not depend on T
+         pressure_normalisation='volume'
+         
      case _ :
          exit('unknown experiment')  
 
@@ -319,7 +341,7 @@ for j in range(0,nely+1):
     #end for
  #end for
 
-if debug: np.savetxt('gridP.ascii',np.array([xP,yP]).T,header='# x,y')
+if debug: np.savetxt('gridP.ascii',np.array([x_P,y_P]).T,header='# x,y')
 
 print("build P grid: %.3f s" % (clock.time() - start))
 
@@ -379,6 +401,20 @@ match(experiment):
              if y_V[i]/Ly>(1-eps):
                 bc_fix_V[i*ndof_V  ]=True ; bc_val_V[i*ndof_V  ]=0.
                 bc_fix_V[i*ndof_V+1]=True ; bc_val_V[i*ndof_V+1]=0.
+                
+     case(2): # Schmeling et al subduction, reflective (free slip) boundaries
+         for i in range(0,nn_V):
+             # Left/right sides: u_x = 0
+             if x_V[i]/Lx<eps:
+                bc_fix_V[i*ndof_V  ]=True ; bc_val_V[i*ndof_V  ]=0.
+             if x_V[i]/Lx>(1-eps):
+                bc_fix_V[i*ndof_V  ]=True ; bc_val_V[i*ndof_V  ]=0.
+             # Top/bottom: u_y = 0  
+             if y_V[i]/Ly<eps:
+                bc_fix_V[i*ndof_V+1]=True ; bc_val_V[i*ndof_V+1]=0.
+             if y_V[i]/Ly>(1-eps):
+                bc_fix_V[i*ndof_V+1]=True ; bc_val_V[i*ndof_V+1]=0.
+                
      case _ :
          exit('unknown experiment')  
 
@@ -703,7 +739,29 @@ match(experiment):
                 swarm_mat[im]=1
              else:
                 swarm_mat[im]=2
-     #case(2):
+     case(2): # For case 1 in the paper
+         theta = np.deg2rad(90) # angle of the slab in radians
+         slab_dx = -np.cos(theta)
+         slab_dy = -np.sin(theta)
+         
+         for im in range(0, nparticle):
+             x = swarm_x[im]
+             y = swarm_y[im]
+             
+             swarm_mat[im] = 2 # default: in ambient mantle
+             
+             if (Ly - y) <= thickness_surfacelayer: # check if particle is in the top weak layer
+                 swarm_mat[im] = 1 # in weak surface layer
+            
+             proj = ((x - Lx) * slab_dx + (y - Ly) * slab_dy) # projection onto slab dip line
+             if proj >= thickness_surfacelayer and proj <= (slab_penetration0 + thickness_surfacelayer): # is it in the initial slab penetration depth?
+                 px = Lx + proj * slab_dx
+                 py = Ly + proj * slab_dy
+                 pdist = np.sqrt((x - px) ** 2 + (y - py) ** 2)
+                 if pdist <= thickness_lith0:
+                     swarm_mat[im] = 3 # in slab
+
+         
      case _ :
          exit('unknown experiment')  
 
@@ -756,7 +814,19 @@ for istep in range(0,nstep):
                     swarm_rho[ip]=1010
                     swarm_eta[ip]=100
 
-         #case(2):
+         case(2):
+             for ip in range(0, nparticle):
+                 if swarm_mat[ip] == 1: # surface layer
+                     swarm_rho[ip] = rho_surfacelayer
+                     swarm_eta[ip] = eta_surfacelayer_weak
+                 elif swarm_mat[ip] == 2: # mantle
+                     swarm_rho[ip] = rho_mantle
+                     swarm_eta[ip] = eta_mantle
+                 elif swarm_mat[ip] == 3: # slab/lithosphere
+                     swarm_rho[ip] = rho_lith
+                     swarm_eta[ip] = eta_lith
+             
+             
          case _ :
             exit('unknown experiment')  
 
